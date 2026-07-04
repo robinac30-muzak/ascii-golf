@@ -103,6 +103,8 @@
   .courseBtn:hover{background:#1d2a42;border-color:#3b4f75}
   .courseBtn .cn{color:#fff;font-size:13px;letter-spacing:1.5px}
   .courseBtn .cs{color:var(--dim);font-size:11px;margin-top:2px}
+  .courseBtn.resume{border-color:var(--amber)}
+  .courseBtn.resume .cn{color:var(--amber)}
   #menuNote{color:var(--dim);font-size:10px;text-align:center;margin-top:8px}
   #card{background:var(--panel);border:2px solid var(--edge);border-radius:8px;padding:26px 40px;text-align:center;
         box-shadow:0 0 60px rgba(255,184,77,.15);max-width:90vw}
@@ -433,7 +435,7 @@ const swing = {phase:'idle', val:0, dir:1, power:0};
 const METER_MIN=-25, METER_MAX=118, RATE_UP=82, RATE_DN=96;
 
 function defaultClub(){
-  const d=Math.hypot(CUR.pin[0], CUR.pin[1]-2);
+  const d=distToPin(ball);
   let best=0, bs=1e9;
   for(let i=0;i<6;i++){ const s=Math.abs(CLUBS[i].carry-d); if(s<bs){bs=s;best=i;} }
   return d>235 ? 0 : best;
@@ -470,18 +472,90 @@ function selectCourse(i){
 function buildMenu(){
   try{
     const list=$('menuList'); let h='';
+    const rs=lsGet(LS_ROUND), bests=lsGet(LS_BESTS)||{};
+    let rIdx=-1;
+    if(rs) for(let i=0;i<COURSES.length;i++) if(COURSES[i].id===rs.course) rIdx=i;
+    if(rIdx>=0){
+      h+='<div class="courseBtn resume" data-r="1"><div class="cn">▶ RESUME ROUND</div><div class="cs">'
+        +COURSES[rIdx].name+' · HOLE '+((rs.hIdx||0)+1)+' · '+toParStr(rs.scores, COURSES[rIdx].holes)+'</div></div>';
+    }
     for(let i=0;i<COURSES.length;i++){
       const c=COURSES[i];
       const yds=c.holes.reduce(function(s,x){return s+x.len;},0);
       const par=c.holes.reduce(function(s,x){return s+x.par;},0);
-      h+='<div class="courseBtn" data-i="'+i+'"><div class="cn">'+c.name+'</div><div class="cs">'+c.sub+' · PAR '+par+' · '+yds.toLocaleString()+' YDS</div></div>';
+      const b=bests[c.id];
+      const best=b ? ' · YOUR BEST '+b.total+' ('+fmtDiff(b.total-par)+')' : '';
+      h+='<div class="courseBtn" data-i="'+i+'"><div class="cn">'+c.name+'</div><div class="cs">'+c.sub+' · PAR '+par+' · '+yds.toLocaleString()+' YDS'+best+'</div></div>';
     }
     list.innerHTML=h;
     const btns=list.getElementsByClassName('courseBtn');
     for(let k=0;k<btns.length;k++){
-      (function(el){ el.onclick=function(){ selectCourse(+el.getAttribute('data-i')); }; })(btns[k]);
+      (function(el){ el.onclick=function(){
+        if(el.getAttribute('data-r')) resumeRound();
+        else selectCourse(+el.getAttribute('data-i'));
+      }; })(btns[k]);
     }
   }catch(e){}
+}
+function showMenu(){ buildMenu(); try{ $('menu').style.display='flex'; }catch(e){} }
+
+/* ---------- persistence (localStorage) ---------- */
+const LS_ROUND='asciiGolf.round.v1', LS_BESTS='asciiGolf.bests.v1';
+function lsGet(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+function lsDel(k){ try{ localStorage.removeItem(k); }catch(e){} }
+function fmtDiff(d){ return d===0?'E':(d>0?'+'+d:''+d); }
+function toParStr(sc, holes){
+  let d=0, any=false;
+  for(let i=0;i<18;i++) if(sc && sc[i]!=null){ d+=sc[i]-holes[i].par; any=true; }
+  return any ? fmtDiff(d) : 'E';
+}
+function saveRound(){
+  // an untouched round (hole 1 tee, nothing played) never overwrites a stored one
+  let any=(strokes>0);
+  for(let i=0;i<18;i++) if(scores[i]!=null) any=true;
+  if(!any) return;
+  lsSet(LS_ROUND, {course:CRS.id, hIdx:hIdx, scores:scores, strokes:strokes,
+                   ball:{x:ball.x, y:ball.y}, wind:wind});
+}
+function recordBest(total){
+  const bests=lsGet(LS_BESTS)||{};
+  const prev=bests[CRS.id];
+  if(!prev || total<prev.total) lsSet(LS_BESTS, Object.assign({}, bests, (function(){ const o={}; o[CRS.id]={total:total, when:Date.now()}; return o; })()));
+  return prev;
+}
+function resumeRound(){
+  const s=lsGet(LS_ROUND); if(!s) return;
+  let ci=-1;
+  for(let i=0;i<COURSES.length;i++) if(COURSES[i].id===s.course) ci=i;
+  if(ci<0) return selectCourse(0);
+  CRS=COURSES[ci]; HOLES=CRS.holes;
+  TOTAL_PAR=HOLES.reduce(function(a,h){return a+h.par;},0);
+  setStyle(CRS.style);
+  topKey=''; markBG();
+  try{ $('menu').style.display='none'; }catch(e){}
+  scores=new Array(18).fill(null);
+  if(s.scores) for(let i=0;i<18;i++) if(s.scores[i]!=null) scores[i]=s.scores[i];
+  loadHole(Math.max(0, Math.min(17, s.hIdx||0)));
+  if(s.ball && typeof s.ball.x==='number' && (s.strokes||0)>0){
+    ball={x:s.ball.x, y:s.ball.y};
+    lastSafe={x:ball.x, y:ball.y};
+    strokes=s.strokes;
+    if(s.wind && typeof s.wind.x==='number') wind=s.wind;
+    lie=terrainAt(ball.x, ball.y); if(lie==='water') lie='rough';
+    zoomMode=(lie==='green');
+    $('vTag').style.display=zoomMode?'inline':'none';
+    clubIdx=(lie==='green') ? CLUBS.length-1 : defaultClub();
+    aimAtPin();
+    markBG();  // re-render the cached backdrop from the restored ball position
+    setMsg('Welcome back — resuming at hole '+(hIdx+1)+'.',
+      strokes+' stroke'+(strokes===1?'':'s')+' played · '+(lie==='green'
+        ? Math.round(distToPin(ball)*3)+' feet to the hole.'
+        : Math.round(distToPin(ball))+' yds to the pin · lie: '+(LIE_NAME[lie]||lie)));
+    hint.textContent=meterHintText();
+    renderScorecard(); updateHUD(); draw();
+  }
+  saveRound();
 }
 
 function aimDefault(){
@@ -1271,7 +1345,7 @@ document.addEventListener('keydown', function(e){
   else if(k==='ArrowDown'||k==='s'){ e.preventDefault(); adjustClub(1); }
   else if(k==='v'||k==='V'){ viewMode=(viewMode==='persp'?'top':'persp'); draw(); }
   else if(k==='b'||k==='B'){ gfxMode=(gfxMode==='canvas'?'ascii':'canvas'); draw(); }
-  else if(k==='c'||k==='C'){ try{ $('menu').style.display='flex'; }catch(e){} }
+  else if(k==='c'||k==='C'){ showMenu(); }
   else if(k==='q'||k==='Q'){ adjustSpin(-0.25); }
   else if(k==='e'||k==='E'){ adjustSpin(0.25); }
   else if(k==='r'||k==='R'){ resetRound(); }
@@ -1285,7 +1359,7 @@ $('swingBtn').onclick=action;
 $('bMap').onclick=function(){ viewMode=(viewMode==='persp'?'top':'persp'); draw(); };
 $('bGfx').onclick=function(){ gfxMode=(gfxMode==='canvas'?'ascii':'canvas'); draw(); };
 $('bSpinD').onclick=function(){ adjustSpin(-0.25); };
-$('bCourse').onclick=function(){ try{ $('menu').style.display='flex'; }catch(e){} };
+$('bCourse').onclick=function(){ showMenu(); };
 $('bSpinU').onclick=function(){ adjustSpin(0.25); };
 $('meter').onclick=action;
 
@@ -1441,6 +1515,7 @@ function afterShotCommon(keepMsg){
   }
   hint.textContent=meterHintText();
   updateHUD(); draw();
+  saveRound();
 }
 function holeOut(onTheFly){
   anim=null; holed=true; sHole();
@@ -1456,12 +1531,18 @@ function holeOut(onTheFly){
   else if(diff===2) name='DOUBLE BOGEY';
   else name='+'+diff;
   const last=(hIdx===17);
+  if(last) lsDel(LS_ROUND);
+  else lsSet(LS_ROUND, {course:CRS.id, hIdx:hIdx+1, scores:scores, strokes:0, ball:null, wind:null});
   $('cardTitle').textContent=name;
   let txt=(onTheFly?'Straight in on the fly! ':'')+strokes+' stroke'+(strokes>1?'s':'')+' on the par '+par+' '+(hIdx+1)+getOrdinal(hIdx+1)+'.';
   txt+=' Round so far: '+roundToPar()+'.';
   if(last){
     const tot=scores.reduce(function(a,b){return a+(b||0);},0);
     txt+=' FINAL: '+tot+' strokes, '+roundToPar()+' against par '+TOTAL_PAR+'.';
+    const prev=recordBest(tot);
+    if(!prev) txt+=' Personal best set — beat it next time.';
+    else if(tot<prev.total) txt+=' NEW PERSONAL BEST (was '+prev.total+')!';
+    else txt+=' Your best here: '+prev.total+'.';
   }
   $('cardText').textContent=txt;
   $('againBtn').textContent = last ? 'PLAY AGAIN' : 'NEXT HOLE ▶';
@@ -1560,8 +1641,7 @@ function frame(ts){
 }
 
 selectCourse(0);
-buildMenu();
-try{ $('menu').style.display='flex'; }catch(e){}
+showMenu();
 requestAnimationFrame(frame);
 </script>
 <script>
