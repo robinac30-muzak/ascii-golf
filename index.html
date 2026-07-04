@@ -1532,8 +1532,9 @@ function frame(ts){
       anim.pos.x+=anim.dv.x*step; anim.pos.y+=anim.dv.y*step;
       const t=terrainAt(anim.pos.x, anim.pos.y);
       if(t==='green' && anim.v>0.85){
-        const vx=anim.dv.x*anim.v + CUR.slope.ax*dt*2.2;
-        const vy=anim.dv.y*anim.v + CUR.slope.ay*dt*2.2;
+        const brk=1.4*Math.min(1, anim.v/2.5); // break fades as the ball dies so friction can win
+        const vx=anim.dv.x*anim.v + CUR.slope.ax*dt*brk;
+        const vy=anim.dv.y*anim.v + CUR.slope.ay*dt*brk;
         const nv=Math.hypot(vx,vy);
         if(nv>0.01){ anim.v=nv; anim.dv.x=vx/nv; anim.dv.y=vy/nv; }
       }
