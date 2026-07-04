@@ -69,7 +69,13 @@
   #spinLine{position:absolute;left:15%;width:70%;height:2px;background:#ff5c5c;top:calc(50% - 1px);box-shadow:0 0 4px #ff5c5c}
   #spinTxt{font-size:9px;color:var(--dim);letter-spacing:.5px;margin-top:3px;white-space:nowrap}
   #spinCtl.dim{opacity:.3}
-  @media(max-width:640px){#spinCtl{position:static;margin:6px auto 0}}
+  @media(max-width:640px){
+    #spinCtl{position:static;margin:6px auto 0}
+    /* reserve two lines so wrapping text never shifts the buttons mid-swing */
+    #meterHint{line-height:12px;min-height:24px}
+    #msg{line-height:16px;min-height:32px}
+    #msg2{line-height:14px;min-height:28px}
+  }
 
   #btns{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:10px}
   button{font-family:inherit;font-size:12px;letter-spacing:1px;color:var(--text);background:#182236;
